@@ -1,7 +1,7 @@
-// TokyoTosho Hayase Extension
-// Searches TokyoTosho for subtitled anime (type=1)
+// Nyaa.si Hayase Extension
+// Searches Nyaa.si for subtitled anime using the RSS API
 
-const BASE = "https://www.tokyotosho.info";
+const BASE = "https://nyaa.si";
 
 function parseRssItems(xml) {
   const parser = new DOMParser();
@@ -11,23 +11,21 @@ function parseRssItems(xml) {
   return items.map((item) => {
     const get = (tag) => item.querySelector(tag)?.textContent?.trim() ?? "";
 
-    const enclosure = item.querySelector("enclosure");
-    const torrentUrl = enclosure?.getAttribute("url") || get("link") || "";
+    const hash = get("nyaa\\:infoHash") || get("infoHash") || null;
 
-    const guid = get("guid");
-    const hash = /^[0-9a-fA-F]{40}$/.test(guid) ? guid.toLowerCase() : null;
+    const seeders = parseInt(get("nyaa\\:seeders") || get("seeders") || "0", 10);
+    const leechers = parseInt(get("nyaa\\:leechers") || get("leechers") || "0", 10);
+    const size = get("nyaa\\:size") || get("size") || null;
 
-    const desc = get("description");
-    const sizeMatch = desc.match(/Size:\s*([\d.,]+\s*\w+)/i);
-    const size = sizeMatch ? sizeMatch[1] : null;
+    const link = get("link");
 
     return {
       title: get("title"),
-      torrentUrl,
-      hash,
+      torrentUrl: link ? `${BASE}${link}.torrent` : null,
+      hash: hash ? hash.toLowerCase() : null,
       size,
-      seeders: 0,
-      leechers: 0,
+      seeders,
+      leechers,
     };
   });
 }
@@ -49,20 +47,21 @@ function toResult(item) {
   };
 }
 
+async function fetchRss(params) {
+  const url = `${BASE}/?page=rss&c=1_2&${params}`;
+  const res = await fetch(url, {
+    headers: { Accept: "application/rss+xml, text/xml, */*" },
+  });
+  if (!res.ok) throw new Error(`Nyaa fetch failed: ${res.status}`);
+  return res.text();
+}
+
 export async function byTitle(title, episode) {
   const query = episode != null
     ? `${title} ${String(episode).padStart(2, "0")}`
     : title;
 
-  const url = `${BASE}/search.php?terms=${encodeURIComponent(query)}&type=1&offset=0`;
-
-  const res = await fetch(url, {
-    headers: { Accept: "application/rss+xml, text/xml, */*" },
-  });
-
-  if (!res.ok) throw new Error(`TokyoTosho search failed: ${res.status}`);
-
-  const xml = await res.text();
+  const xml = await fetchRss(`q=${encodeURIComponent(query)}`);
   return parseRssItems(xml).map(toResult).filter((r) => r.title);
 }
 
@@ -78,14 +77,6 @@ export async function byAnilist(media, episode) {
 }
 
 export async function dash() {
-  const url = `${BASE}/rss.php?type=1`;
-
-  const res = await fetch(url, {
-    headers: { Accept: "application/rss+xml, text/xml, */*" },
-  });
-
-  if (!res.ok) throw new Error(`TokyoTosho RSS failed: ${res.status}`);
-
-  const xml = await res.text();
+  const xml = await fetchRss("s=id&o=desc");
   return parseRssItems(xml).map(toResult).filter((r) => r.title);
 }
