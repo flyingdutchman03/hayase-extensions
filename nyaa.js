@@ -1,82 +1,114 @@
-// Nyaa.si Hayase Extension
-// Searches Nyaa.si for subtitled anime using the RSS API
+// ==MiruExtension==
+// @name         Nyaa
+// @version      v0.0.1
+// @author       appdevelpo
+// @lang         en
+// @license      MIT
+// @icon         https://nyaa.si/static/favicon.png
+// @package      nyaa.si
+// @type         bangumi
+// @webSite      https://nyaa.si
+// @description  A BitTorrent community focused on Eastern Asian media including anime, manga, music, and more.
+// ==/MiruExtension==
 
-const BASE = "https://nyaa.si";
+export default class extends Extension {
 
-function parseRssItems(xml) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xml, "application/xml");
-  const items = Array.from(doc.querySelectorAll("item"));
+    async createFilter(filter) {
+        if(filter){
+            console.log(filter)
+        }
+        const filters = {
+            sort_by:{
+                title: "sort-by",
+                max: 1,
+                min: 1,
+                default: "",
+                options:{
+                  "&s=size":"Size",
+                  "&s=id":"Id",
+                  "&s=seeders":"Seeders",
+                  "&s=leechers":"Leechers",
+                  "&s=downloads":"Complete Downloads",
+                  "&s=comments":"Comments",
+                  "":"None"
+                }
+            },
+            date:{
+                title: "date",
+                max:1,
+                min:0,
+                default: "",
+                options:{
+                    "&o=desc":"descending",
+                    "&o=asc":"ascending",
+                    "":"None"
+                }
+            }
+        }
+    return filters
+    }
 
-  return items.map((item) => {
-    const get = (tag) => item.querySelector(tag)?.textContent?.trim() ?? "";
+    async latest(page) {
+        const res = await this.request(`/?f=0&c=1_0&p=${page}`)
+        const bsxList = res.match(/<tr class="default"[\s\S]+?<\/tr>/g)
+        // console.log(bsxList[0])
+        const bangumi = bsxList.map((element) => {
+            // console.log(element.match(/data-timestamp.+?>(.+?)<\/td>[^;]+?(\d+)<\/td>[\s\S]+?>(\d+)/))
+            const update_info = element.match(/data-timestamp.+?>(.+?)<\/td>[^;]+?(\d+)<\/td>[\s\S]+?>(\d+)/)
+            return {
+                title: element.match(/view.+?title="(.+?)">/)[1],
+                url: element.match(/a href="(\/view\/\d+?)"/)[1],
+                update: `${update_info[1]} seeeder:${update_info[2]} leecher:${update_info[3]}`
 
-    const hash = get("nyaa\\:infoHash") || get("infoHash") || null;
+            }
+        })
+        return bangumi
+    }
 
-    const seeders = parseInt(get("nyaa\\:seeders") || get("seeders") || "0", 10);
-    const leechers = parseInt(get("nyaa\\:leechers") || get("leechers") || "0", 10);
-    const size = get("nyaa\\:size") || get("size") || null;
+    async detail(url) {
+        const res = await this.request(`${url}`);
+        const torrent_link = res.match(/<a href="(.+?torrent)"/)[1]
+        const title = res.match(/h3 class="panel-title">\s+(.+)\s+?<\/h3>/)[1]
+        // console.log(res);
+        return {
+            title,
+            episodes: [{
+                    title: "torrent",
+                    urls: [{
+                        name: `Watch ${title}`,
+                        url: "https://nyaa.si"+torrent_link
+                    }],
+            }],
+        };
+    }
 
-    const link = get("link");
+    async search(kw, page, filter) {
+        let search_string = `/?f=0&c=1_0&p=${page}`
+        search_string += filter['sort_by']+filter['date']
+        if (kw){
+            search_string += `&q=${kw}`
+        }
+        const res = await this.request(search_string)
+        const bsxList = res.match(/<tr class="default"[\s\S]+?<\/tr>|<tr class="success"[\s\S]+?<\/tr>/g)
+        // console.log(bsxList[0])
+        const bangumi = bsxList.map((element) => {
+            // console.log(element.match(/data-timestamp.+?>(.+?)<\/td>[^;]+?(\d+)<\/td>[\s\S]+?>(\d+)/))
+            const update_info = element.match(/data-timestamp.+?>(.+?)<\/td>[^;]+?(\d+)<\/td>[\s\S]+?>(\d+)/)
+            return {
+                title: element.match(/title=".+?">(.+?)<\/a>/)[1],
+                url: element.match(/a href="(\/view\/\d+?)"/)[1],
+                update: `${update_info[1]} seeeder:${update_info[2]} leecher:${update_info[3]}`
 
-    return {
-      title: get("title"),
-      torrentUrl: link ? `${BASE}${link}.torrent` : null,
-      hash: hash ? hash.toLowerCase() : null,
-      size,
-      seeders,
-      leechers,
-    };
-  });
-}
+            }
+        })
+        return bangumi
+    }
 
-function toResult(item) {
-  const magnet = item.hash
-    ? `magnet:?xt=urn:btih:${item.hash}&dn=${encodeURIComponent(item.title)}&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce`
-    : null;
-
-  return {
-    title: item.title,
-    magnet,
-    torrent: item.torrentUrl || null,
-    hash: item.hash,
-    seeders: item.seeders,
-    leechers: item.leechers,
-    accuracy: "high",
-    extra: item.size ? { size: item.size } : undefined,
-  };
-}
-
-async function fetchRss(params) {
-  const url = `${BASE}/?page=rss&c=1_2&${params}`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/rss+xml, text/xml, */*" },
-  });
-  if (!res.ok) throw new Error(`Nyaa fetch failed: ${res.status}`);
-  return res.text();
-}
-
-export async function byTitle(title, episode) {
-  const query = episode != null
-    ? `${title} ${String(episode).padStart(2, "0")}`
-    : title;
-
-  const xml = await fetchRss(`q=${encodeURIComponent(query)}`);
-  return parseRssItems(xml).map(toResult).filter((r) => r.title);
-}
-
-export async function byAnilist(media, episode) {
-  const title =
-    media?.title?.english ||
-    media?.title?.romaji ||
-    media?.title?.native ||
-    "";
-
-  if (!title) return [];
-  return byTitle(title, episode);
-}
-
-export async function dash() {
-  const xml = await fetchRss("s=id&o=desc");
-  return parseRssItems(xml).map(toResult).filter((r) => r.title);
+    async watch(url) {
+        console.log(url)
+        return {
+            type: "torrent",
+            url:url,
+        };
+    }
 }
