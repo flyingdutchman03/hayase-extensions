@@ -1,0 +1,12 @@
+[
+  {
+    "name": "TokyoTosho",
+    "id": "tokyotosho",
+    "version": "0.0.1",
+    "type": "anime",
+    "accuracy": "high",
+    "icon": "https://www.tokyotosho.info/favicon.ico",
+    "update": "https://raw.githubusercontent.com/flyingdutchman03/hayase-extensions/main/index.json",
+    "code": "https://raw.githubusercontent.com/flyingdutchman03/hayase-extensions/main/tokyotosho.js"
+  }
+]
