@@ -1,2 +1,0 @@
-# hayase-extensions
-ext
